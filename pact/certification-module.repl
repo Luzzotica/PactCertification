@@ -1,0 +1,203 @@
+(load "kda-env/init.repl")
+
+(begin-tx "Setup")
+
+(load "get-owned-v1.pact")
+
+(commit-tx)
+
+(begin-tx)
+
+(env-keys ["gov"])
+(env-data
+  { 
+    "gov-guard": { "keys": ["gov"], "pred": "keys-all" },
+    "uri": "https://certifications.luzzotica.xyz",
+    "upgrade": false
+  }
+)
+
+(load "certification-module.pact")
+
+(commit-tx)
+
+
+
+(begin-tx "Test cert gov create, rotate")
+(use certification-module)
+
+(env-keys ["cert-owner"])
+(env-data
+  { 
+    "cert-owner": { "keys": ["cert-owner"], "pred": "keys-all" },
+    "new-owner": { "keys": ["new-owner"], "pred": "keys-all" }
+  }
+)
+
+;; Test create-certification-gov
+(expect-that "Creates the certification"
+  (= "Certification gov record created")
+  (create-certification-gov "cert" (read-keyset "cert-owner"))
+)
+(expect-that "Can get the certification gov"
+  (= "cert")
+  (at "name" (get-certification-gov "cert"))
+)
+
+(expect-failure "Can't make another certification with the same name"
+  "Database exception: Insert: row found for key cert"
+  (create-certification-gov "cert" (read-keyset "cert-owner"))
+)
+
+;; Test rotate-cert-guard
+(env-keys ["new-owner"])
+(expect-failure "Can't rotate without proper keys"
+  "Keyset failure (keys-all): [cert"
+  (rotate-cert-gov-guard "cert" (read-keyset "new-owner"))
+)
+(env-keys ["cert-owner"])
+(expect-that "Rotates the certification-gov guard"
+  (= "Certification gov guard rotated")
+  (rotate-cert-gov-guard "cert" (read-keyset "new-owner"))
+)
+(expect-failure "Can't rotate without proper keys"
+  "Keyset failure (keys-all): [new"
+  (rotate-cert-gov-guard "cert" (read-keyset "cert-owner"))
+)
+(env-keys ["new-owner"])
+(expect-that "Rotates the certification-gov guard"
+  (= "Certification gov guard rotated")
+  (rotate-cert-gov-guard "cert" (read-keyset "cert-owner"))
+)
+
+(commit-tx)
+
+
+
+(begin-tx "Test cert create, rotate award guard")
+(use certification-module)
+
+(env-keys ["cert-owner"])
+(env-data
+  { 
+    "cert-owner": { "keys": ["cert-owner"], "pred": "keys-all" },
+    "new-owner": { "keys": ["new-owner"], "pred": "keys-all" }
+  }
+)
+
+;; Test create-certification
+(expect-that "Creates the certification"
+  (= "Certification record created")
+  (create-certification "cert" "1.0.0" "Example Certification" (read-keyset "cert-owner"))
+)
+(expect-that "Can get the certification"
+  (= "Example Certification")
+  (at "text" (get-certification "cert" "1.0.0"))
+)
+
+;; Can't make another cert with the same name and version
+(expect-failure "Can't make another certification with the same name"
+  "Database exception: Insert: row found for key cert"
+  (create-certification "cert" "1.0.0" "Final Certification" (read-keyset "cert-owner"))
+)
+
+;; Test rotate-award-guard
+(expect-that "Rotates the certification guard"
+  (= "Certification award guard rotated")
+  (rotate-certification-award-guard "cert" "1.0.0" (read-keyset "new-owner"))
+)
+
+;; Can make another cert with the same name and different version
+(expect-that "Can't make another certification with the same name"
+  (= "Certification record created")
+  (create-certification "cert" "1.0.1" "Final Certification" (read-keyset "cert-owner"))
+)
+
+(commit-tx)
+
+
+
+(begin-tx "Award cert")
+(use certification-module)
+
+(env-keys ["cert-owner"])
+
+;; Test award-certification
+(expect-that "Awards the certification"
+  (= "Certification awarded")
+  (award-certification "cert" "1.0.1" "alice")
+)
+(expect-that "Can get the certification"
+  (= 1)
+  (length (get-owned "alice"))
+)
+
+(commit-tx)
+
+
+
+(begin-tx "Test getters")
+(use certification-module)
+
+;; Cert Govs
+(expect-that "Can get the certification gov"
+  (= "cert")
+  (at "name" (get-certification-gov "cert"))
+)
+(expect-that "Can get the certification govs"
+  (= 1)
+  (length (get-certification-govs))
+)
+
+;; Certs
+(expect-that "Can get the certification"
+  (= "Final Certification")
+  (at "text" (get-certification "cert" "1.0.1"))
+)
+(expect-that "Can get the certifications for name"
+  (= 2)
+  (length (get-certifications-for-name "cert"))
+)
+(expect-that "Can get the certifications"
+  (= 2)
+  (length (get-certifications))
+)
+
+;; URI
+(expect-that "Can get the certification gov URI"
+  (= "https://certifications.luzzotica.xyz/cert")
+  (get-uri "cert")
+)
+
+(commit-tx)
+
+
+
+(begin-tx "Test guarded")
+(use certification-module)
+
+(env-keys [])
+(env-data
+  {
+    "new-owner": { "keys": ["new-owner"], "pred": "keys-all" }
+  }
+)
+
+(expect-failure "Can't rotate cert gov without proper keys"
+  "Keyset failure (keys-all): [cert"
+  (rotate-cert-gov-guard "cert" (read-keyset "new-owner"))
+)
+(expect-failure "Can't create cert without proper keys"
+  "Keyset failure (keys-all): [cert"
+  (create-certification "cert" "1.0.0" "certification" (read-keyset "new-owner"))
+)
+(expect-failure "Can't rotate cert award without proper keys"
+  "Keyset failure (keys-all): [cert"
+  (rotate-certification-award-guard "cert" "1.0.0" (read-keyset "new-owner"))
+)
+(expect-failure "Can't award cert without proper keys"
+  "Keyset failure (keys-all): [cert"
+  (award-certification "cert" "1.0.1" "account")
+)
+
+(commit-tx)
